@@ -105,15 +105,8 @@ fun ChatScreen(vm: ChatViewModel, onMenu: () -> Unit) {
                 derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 }
             }
             val scope = rememberCoroutineScope()
-            AnimatedVisibility(
-                !atBottom, Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
-                enter = fadeIn(Motion.spec()), exit = fadeOut(Motion.spec())
-            ) {
-                Box(
-                    Modifier.size(36.dp).clip(CircleShape).background(Color.White)
-                        .tap { scope.launch { listState.scrollToItem(0) } },
-                    contentAlignment = Alignment.Center
-                ) { T("↓", QQ.gray, 18) }
+            ScrollToBottomButton(!atBottom, Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp)) {
+                scope.launch { listState.scrollToItem(0) }
             }
         }
         AnimatedVisibility(
@@ -127,6 +120,19 @@ fun ChatScreen(vm: ChatViewModel, onMenu: () -> Unit) {
             input, { input = it }, busy, Prov.names[provider] ?: "", { picker = !picker },
             onSend = { val t = input; input = ""; vm.send(t) }, onStop = { vm.stop() }
         )
+    }
+}
+
+@Composable
+private fun ScrollToBottomButton(visible: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    AnimatedVisibility(
+        visible, modifier,
+        enter = fadeIn(Motion.spec()), exit = fadeOut(Motion.spec())
+    ) {
+        Box(
+            Modifier.size(36.dp).clip(CircleShape).background(Color.White).tap { onClick() },
+            contentAlignment = Alignment.Center
+        ) { T("↓", QQ.gray, 18) }
     }
 }
 
