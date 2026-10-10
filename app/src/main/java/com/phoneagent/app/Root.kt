@@ -47,3 +47,6 @@ object RootShell {
 enum class Risk { SAFE, CONFIRM, SEVERE }
 
 data class Verdict(val risk: Risk, val reason: String = "")
+
+/** 给 shell 参数加单引号 */
+fun shq(s: String): String = "'" + s.replace("'", "'\\''") + "'"
