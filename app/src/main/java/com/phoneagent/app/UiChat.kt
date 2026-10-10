@@ -107,7 +107,7 @@ fun ChatScreen(vm: ChatViewModel, onMenu: () -> Unit) {
                 contentPadding = PaddingValues(vertical = 10.dp)
             ) {
                 itemsIndexed(rev, key = { _, m -> m.id }) { idx, m ->
-                    MessageItem(m, rev.getOrNull(idx + 1)?.time, provider) { id, ok -> vm.answer(id, ok) }
+                    MessageItem(m, rev.getOrNull(idx + 1)?.time, provider, { vm.stop() }) { id, ok -> vm.answer(id, ok) }
                 }
             }
             val atBottom by remember {
@@ -263,14 +263,14 @@ private fun InputBar(
 /* ============================== 消息 ============================== */
 
 @Composable
-private fun MessageItem(m: UiMsg, olderTime: Long?, provider: String, onAnswer: (String, Boolean) -> Unit) {
+private fun MessageItem(m: UiMsg, olderTime: Long?, provider: String, onStop: () -> Unit, onAnswer: (String, Boolean) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp)) {
         if (olderTime == null || m.time - olderTime > 5 * 60_000L) {
             Box(Modifier.fillMaxWidth().padding(bottom = 10.dp), contentAlignment = Alignment.Center) {
                 T(timeFmt.format(Date(m.time)), QQ.gray, 12)
             }
         }
-        if (m.user) UserRow(m) else AiRow(m, provider, onAnswer)
+        if (m.user) UserRow(m) else AiRow(m, provider, onStop, onAnswer)
     }
 }
 
@@ -309,7 +309,7 @@ private fun groupBlocks(bs: List<Block>): List<G> {
 }
 
 @Composable
-private fun AiRow(m: UiMsg, provider: String, onAnswer: (String, Boolean) -> Unit) {
+private fun AiRow(m: UiMsg, provider: String, onStop: () -> Unit, onAnswer: (String, Boolean) -> Unit) {
     val groups = groupBlocks(m.blocks)
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         Avatar(Prov.letters[provider] ?: "?", avatarColors[provider] ?: QQ.blue)
@@ -330,7 +330,7 @@ private fun AiRow(m: UiMsg, provider: String, onAnswer: (String, Boolean) -> Uni
                         }
                         is G.Fold -> key(g.items.first().key) {
                             if (i > 0) Spacer(Modifier.height(4.dp))
-                            FoldRow(g.items, onAnswer)
+                            FoldRow(g.items, onStop, onAnswer)
                         }
                     }
                 }
@@ -343,7 +343,7 @@ private fun AiRow(m: UiMsg, provider: String, onAnswer: (String, Boolean) -> Uni
 /* ============================== 折叠条 ============================== */
 
 @Composable
-private fun FoldRow(items: List<Block>, onAnswer: (String, Boolean) -> Unit) {
+private fun FoldRow(items: List<Block>, onStop: () -> Unit, onAnswer: (String, Boolean) -> Unit) {
     var userOpen by remember { mutableStateOf(false) }
     val tools = items.filterIsInstance<Block.Tool>()
     val thinks = items.filterIsInstance<Block.Think>()
@@ -362,11 +362,24 @@ private fun FoldRow(items: List<Block>, onAnswer: (String, Boolean) -> Unit) {
     val rot by animateFloatAsState(if (open) 90f else 0f, Motion.spec(), label = "chev")
 
     Column(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-        Row(Modifier.tap { userOpen = !userOpen }.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (active != null || thinking) { Spinner(); Spacer(Modifier.width(8.dp)) }
-            T(label, QQ.gray, 14)
-            Spacer(Modifier.width(6.dp))
-            Box(Modifier.rotate(rot)) { IconChevron() }
+        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.weight(1f, fill = false).tap { userOpen = !userOpen },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (active != null || thinking) { Spinner(); Spacer(Modifier.width(8.dp)) }
+                T(label, QQ.gray, 14, modifier = Modifier.weight(1f, fill = false))
+                Spacer(Modifier.width(6.dp))
+                Box(Modifier.rotate(rot)) { IconChevron() }
+            }
+            // 正在操作或等待确认时，状态条右侧给一个终止按钮
+            if (active != null || thinking) {
+                Spacer(Modifier.width(10.dp))
+                Box(
+                    Modifier.clip(RoundedCornerShape(14.dp)).background(Color(0xFFFDECEA)).tap(onStop)
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                ) { T("终止", QQ.red, 13, bold = true) }
+            }
         }
         AnimatedVisibility(
             open,
