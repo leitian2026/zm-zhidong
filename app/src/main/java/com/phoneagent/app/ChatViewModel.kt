@@ -53,8 +53,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val _sessions = MutableStateFlow(store.list())
     val sessions: StateFlow<List<SessionMeta>> = _sessions.asStateFlow()
 
-    private val _pending = MutableStateFlow<List<Part.File>>(emptyList())
-    val pending: StateFlow<List<Part.File>> = _pending.asStateFlow()
+    private val _files = MutableStateFlow<List<Part.File>>(emptyList())
+    val pendingFiles: StateFlow<List<Part.File>> = _files.asStateFlow()
 
     private val history = mutableListOf<Msg>()
     private var sessionId = newId()
@@ -104,12 +104,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     /* ---------------- 附件 ---------------- */
 
     private fun clearPending() {
-        _pending.value.forEach { runCatching { File(it.path).delete() } }
-        _pending.value = emptyList()
+        _files.value.forEach { runCatching { File(it.path).delete() } }
+        _files.value = emptyList()
     }
 
     fun removePending(f: Part.File) {
-        _pending.update { l -> l.filterNot { it == f } }
+        _files.update { l -> l.filterNot { it == f } }
         runCatching { File(f.path).delete() }
     }
 
@@ -148,7 +148,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     if (dst.length() > MAX_FILE) { dst.delete(); toast("「$name」超过 ${MAX_FILE shr 20}MB，已跳过"); continue }
                     val mime = guessMime(name, app.contentResolver.getType(u))
                     if (sid != sessionId) { dst.delete(); continue }
-                    _pending.update { it + Part.File(name, mime, dst.absolutePath, dst.length()) }
+                    _files.update { it + Part.File(name, mime, dst.absolutePath, dst.length()) }
                 } catch (e: Exception) {
                     toast("添加文件失败：" + (e.message ?: e.javaClass.simpleName))
                 }
@@ -163,9 +163,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun send(text: String) {
-        val files = _pending.value
+        val files = _files.value
         if (_busy.value || (text.isBlank() && files.isEmpty())) return
-        _pending.value = emptyList()
+        _files.value = emptyList()
         val now = System.currentTimeMillis()
         val parts = buildList<Part> {
             if (text.isNotBlank()) add(Part.Text(text))
