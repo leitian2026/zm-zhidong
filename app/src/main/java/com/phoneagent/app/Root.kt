@@ -61,10 +61,21 @@ object Danger {
         """\b(dd|mkfs\S*|fastboot|wipe|flash_image|blkdiscard)\b|reboot\s+(recovery|bootloader|fastboot|edl)|/dev/block|rm\s+(-\w+\s+)*(/|/data|/sdcard|/storage\S*|\*)(\s|$)"""
     )
 
+    // 重定向到 /dev/null、fd 之间的重定向（2>&1）没有副作用，先去掉再判断
+    private val safeRedir = Regex("""\s*[0-9&]?>{1,2}\s*/dev/null(?![\w/])|\s*[0-9]?>&[0-9]""")
+    private fun stripSafeRedirects(c: String) = c.replace(safeRedir, " ")
+
+    private val cmdSub = Regex("""\$\(([^()]*)\)|`([^`]*)`""")
+    private val keywordPrefix = Regex("^(do|then|else|elif|if)\\s+(.*)$")
+    private val forHead = Regex("^for\\s+\\w+\\s+in(\\s+.*)?$")
+    private val assign = Regex("^[A-Za-z_]\\w*=\\S*$")
+    private val bareKeywords = setOf("do", "then", "else", "fi", "done", "esac")
+
     fun classify(cmd: String, autoSafe: Boolean): Verdict {
         val c = cmd.trim()
         if (c.isEmpty()) return Verdict(Risk.SAFE)
-        if (severeCmd.containsMatchIn(c) || (sysPath.containsMatchIn(c) && destructive.containsMatchIn(c))) {
+        val d = stripSafeRedirects(c)
+        if (severeCmd.containsMatchIn(d) || (sysPath.containsMatchIn(d) && destructive.containsMatchIn(d))) {
             return Verdict(Risk.SEVERE, "可能破坏系统分区或造成不可逆的后果")
         }
         if (!autoSafe) return Verdict(Risk.CONFIRM, "当前是严格模式，所有操作都需要确认")
@@ -72,22 +83,45 @@ object Danger {
         return Verdict(Risk.CONFIRM, "该命令不在自动放行名单内，可能修改系统或应用数据")
     }
 
-    private fun isSafe(c: String): Boolean {
-        if (c.contains('\n') || c.contains("$(") || c.contains('`')) return false
+    private fun isSafe(c0: String, depth: Int = 0): Boolean {
+        if (depth > 3) return false
+        var c = stripSafeRedirects(c0)
+        // 命令替换 $(...) / `...`：里面的命令本身也必须是只读的，通过后用占位符替换
+        var guard = 0
+        while (true) {
+            val m = cmdSub.find(c) ?: break
+            if (++guard > 20) return false
+            val inner = m.groupValues[1].ifEmpty { m.groupValues[2] }
+            if (!isSafe(inner, depth + 1)) return false
+            c = c.replaceRange(m.range, "Q")
+        }
+        if (c.contains("$(") || c.contains('`')) return false
         // 去掉引号里的内容后再拆分，避免 grep -E 'a|b' 被误拆
         val flat = c.replace(Regex("'[^']*'"), "Q").replace(Regex("\"[^\"]*\""), "Q")
         if (flat.contains('>') || flat.contains('<')) return false
-        return flat.split(Regex("""\|\||&&|;|\|""")).all { segSafe(it.trim()) }
+        return flat.split(Regex("""\|\||&&|;|\||&|\n""")).all { segSafe(it.trim()) }
     }
 
     private val plain = setOf(
         "ls", "cat", "head", "tail", "grep", "wc", "id", "whoami", "date", "uname", "uptime", "df",
         "ps", "getprop", "getenforce", "dumpsys", "echo", "pidof", "free", "top", "ip", "ifconfig",
-        "ping", "sort", "uniq", "cut", "sleep", "true", "input", "svc"
+        "ping", "sort", "uniq", "cut", "sleep", "true", "input", "svc",
+        // 只读查询类
+        "stat", "du", "readlink", "realpath", "basename", "dirname", "which", "file",
+        "md5sum", "sha1sum", "sha256sum", "tr", "printf", "hostname", "nproc", "pgrep", "lsof",
+        "netstat", "ss", "cmp", "diff", "strings", "xxd", "od", "hexdump", "base64", "tac", "rev",
+        "lsmod", "test", "[", "[["
     )
 
-    private fun segSafe(s: String): Boolean {
-        if (s.isEmpty()) return true
+    private fun segSafe(s0: String): Boolean {
+        var s = s0.trim()
+        // shell 关键字：for x in ...; do ...; done / if ...; then ...; fi
+        while (true) {
+            val m = keywordPrefix.find(s) ?: break
+            s = m.groupValues[2].trim()
+        }
+        if (s.isEmpty() || s in bareKeywords) return true
+        if (forHead.matches(s) || assign.matches(s)) return true
         val t = s.split(Regex("\\s+"))
         val cmd = t[0]
         val a = t.drop(1)
@@ -96,13 +130,15 @@ object Danger {
             "logcat" -> a.contains("-d")
             "monkey" -> a.contains("-p")
             "am" -> a.firstOrNull() == "start"
-            "pm" -> a.firstOrNull() in setOf("list", "path", "dump")
-            "settings" -> a.firstOrNull() == "get"
+            "pm" -> a.firstOrNull() in setOf("list", "path", "dump", "resolve-activity")
+            "settings" -> a.firstOrNull() in setOf("get", "list")
             "content" -> a.firstOrNull() == "query"
+            "magisk" -> a.firstOrNull() in setOf("-c", "-v", "-V", "--path")
             "find" -> !a.contains("-delete") && !a.any { it.startsWith("-exec") }
             "cmd" -> when (a.firstOrNull()) {
                 "wifi" -> a.getOrNull(1) in setOf("status", "set-wifi-enabled", "list-scan-results", "list-networks")
                 "bluetooth_manager" -> a.getOrNull(1) in setOf("enable", "disable")
+                "package" -> a.getOrNull(1) in setOf("list", "path", "resolve-activity", "dump")
                 "statusbar" -> true
                 else -> false
             }
