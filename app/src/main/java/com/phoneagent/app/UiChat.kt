@@ -86,7 +86,7 @@ fun ChatScreen(vm: ChatViewModel, onMenu: () -> Unit) {
     val busy by vm.busy.collectAsState()
     val provider by vm.provider.collectAsState()
     val title by vm.title.collectAsState()
-    val pending by vm.pending.collectAsState()
+    val attached by vm.pendingFiles.collectAsState()
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) vm.attach(uris)
     }
@@ -124,10 +124,10 @@ fun ChatScreen(vm: ChatViewModel, onMenu: () -> Unit) {
         ) {
             ModelPicker(provider, vm) { picker = false }
         }
-        if (pending.isNotEmpty()) PendingFiles(pending) { vm.removePending(it) }
+        if (attached.isNotEmpty()) PendingFiles(attached) { vm.removePending(it) }
         InputBar(
             input, { input = it }, busy, Prov.names[provider] ?: "", { picker = !picker },
-            hasFiles = pending.isNotEmpty(),
+            hasFiles = attached.isNotEmpty(),
             onAttach = { filePicker.launch(arrayOf("*/*")) },
             onSend = { val t = input; input = ""; vm.send(t) }, onStop = { vm.stop() }
         )
