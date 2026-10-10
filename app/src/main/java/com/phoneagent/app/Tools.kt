@@ -37,6 +37,7 @@ object Tools {
             Status.DONE -> what
             Status.FAILED -> "$what（失败）"
             Status.DENIED -> "已拒绝：$what"
+            Status.STOPPED -> "已终止：$what"
         }
     }
 
