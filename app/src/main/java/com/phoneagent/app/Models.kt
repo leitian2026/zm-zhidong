@@ -28,7 +28,7 @@ interface Provider {
     suspend fun stream(system: String, msgs: List<Msg>, tools: List<ToolSpec>, emit: (Ev) -> Unit)
 }
 
-class HttpError(message: String) : java.io.IOException(message)
+class HttpError(message: String, val code: Int = 0, val body: String = "", val retryAfter: Int = 0) : java.io.IOException(message)
 
 /** ---------- UI 状态 ---------- */
 enum class Status { RUNNING, WAITING, DONE, FAILED, DENIED }
