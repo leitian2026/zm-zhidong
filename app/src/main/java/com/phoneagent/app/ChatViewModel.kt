@@ -99,6 +99,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun stop() {
         job?.cancel()
+        RootShell.cancelCurrent()
         pending.values.forEach { it.complete(false) }
     }
 
@@ -376,7 +377,20 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun finish(aiId: String) {
         _notice.value = ""
-        updateAi(aiId) { it.copy(streaming = false) }
+        // 被终止时，还在转圈的工具/思考块一并收尾，避免状态条一直显示“进行中”
+        updateAi(aiId) { m ->
+            m.copy(
+                streaming = false,
+                blocks = m.blocks.map { b ->
+                    when {
+                        b is Block.Tool && (b.status == Status.RUNNING || b.status == Status.WAITING) ->
+                            b.copy(status = Status.STOPPED, confirm = null, output = b.output.ifBlank { "已终止" })
+                        b is Block.Think && b.running -> b.copy(running = false)
+                        else -> b
+                    }
+                }
+            )
+        }
         _busy.value = false
         // 被中断时，补齐没有结果的工具调用，避免下次请求格式错误
         val last = history.lastOrNull()
