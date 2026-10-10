@@ -37,7 +37,11 @@ object Http {
         try {
             call.execute().use { resp ->
                 if (!resp.isSuccessful) {
-                    throw HttpError("HTTP ${resp.code}：${resp.body?.string()?.take(600)}")
+                    val raw = resp.body?.string()?.take(4000) ?: ""
+                    throw HttpError(
+                        "HTTP ${resp.code}：${raw.take(600)}", resp.code, raw,
+                        resp.header("Retry-After")?.trim()?.toIntOrNull() ?: 0
+                    )
                 }
                 val src = resp.body!!.source()
                 while (true) {
