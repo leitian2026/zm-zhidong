@@ -8,6 +8,10 @@ import java.io.File
 /** 会话以 JSON 文件保存在应用私有目录 */
 class Store(ctx: Context) {
     private val dir = File(ctx.filesDir, "sessions").apply { mkdirs() }
+    private val attachments = File(ctx.filesDir, "attachments").apply { mkdirs() }
+
+    /** 某个会话的附件目录 */
+    fun attachDir(id: String): File = File(attachments, id).apply { mkdirs() }
 
     fun list(): List<SessionMeta> =
         (dir.listFiles() ?: emptyArray()).mapNotNull { f ->
@@ -32,6 +36,10 @@ class Store(ctx: Context) {
                         JSONObject().put("t", "result").put("id", p.id).put("name", p.name)
                             .put("content", p.content)
                     )
+                    is Part.File -> parts.put(
+                        JSONObject().put("t", "file").put("name", p.name).put("mime", p.mime)
+                            .put("path", p.path).put("size", p.size)
+                    )
                 }
             }
             arr.put(JSONObject().put("role", m.role.name).put("time", m.time).put("parts", parts))
@@ -55,6 +63,7 @@ class Store(ctx: Context) {
                     "text" -> parts.add(Part.Text(p.str("text")))
                     "call" -> parts.add(Part.Call(p.str("id"), p.str("name"), p.str("args"), p.str("sig").ifEmpty { null }))
                     "result" -> parts.add(Part.Result(p.str("id"), p.str("name"), p.str("content")))
+                    "file" -> parts.add(Part.File(p.str("name"), p.str("mime"), p.str("path"), p.optLong("size", 0L)))
                 }
             }
             out.add(Msg(Role.valueOf(m.getString("role")), parts, m.optLong("time", 0L)))
@@ -62,5 +71,8 @@ class Store(ctx: Context) {
         j.getString("title") to out
     }.getOrNull()
 
-    fun delete(id: String) { File(dir, "$id.json").delete() }
+    fun delete(id: String) {
+        File(dir, "$id.json").delete()
+        File(attachments, id).deleteRecursively()
+    }
 }
