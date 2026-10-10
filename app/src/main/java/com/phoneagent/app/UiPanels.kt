@@ -1,5 +1,6 @@
 package com.phoneagent.app
 
+import android.util.Base64
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -34,6 +36,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -154,6 +157,8 @@ private fun SettingsPanel(vm: ChatViewModel, visible: Boolean, close: () -> Unit
                         T(Prov.names[id] ?: id, QQ.text, 16, bold = true)
                         Field("API Key", st.key(id), secret = true) { st.setKey(id, it) }
                         Field("模型名称（可改）", st.model(id)) { st.setModel(id, it) }
+                        Field("每分钟请求上限（0 = 不限制，按所用模型在官网看到的数值填）", st.rpm(id).toString()) { st.setRpm(id, it) }
+                        Field("每天请求上限（0 = 不限制，仅用于提醒）", st.rpd(id).toString()) { st.setRpd(id, it) }
                         if (id == "openai") Field("Base URL（兼容接口可改）", st.baseUrl()) { st.setBaseUrl(it) }
                     }
                 }
@@ -166,6 +171,7 @@ private fun SettingsPanel(vm: ChatViewModel, visible: Boolean, close: () -> Unit
                         Toggle(auto) { auto = it; st.autoSafe = it }
                     }
                 }
+                NotesCard(vm)
                 Card {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
@@ -219,5 +225,101 @@ private fun Toggle(on: Boolean, onChange: (Boolean) -> Unit) {
     val x by animateDpAsState(if (on) 22.dp else 2.dp, Motion.spec(), label = "tx")
     Box(Modifier.width(48.dp).height(28.dp).clip(CircleShape).background(bg).tap { onChange(!on) }) {
         Box(Modifier.offset(x = x, y = 2.dp).size(24.dp).clip(CircleShape).background(Color.White))
+    }
+}
+
+/* ============================== 经验笔记 ============================== */
+
+@Composable
+private fun NotesCard(vm: ChatViewModel) {
+    val scope = rememberCoroutineScope()
+    val dir = vm.notesDir
+    var files by remember { mutableStateOf<List<String>>(emptyList()) }
+    var openName by remember { mutableStateOf("") }
+    var text by remember { mutableStateOf("") }
+    var readOnly by remember { mutableStateOf(false) }
+    var delArm by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf("") }
+
+    fun reload() {
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { RootShell.run("ls -1 " + shq(dir) + " 2>/dev/null") }
+            files = if (r.code == 0) {
+                r.out.lines().map { it.trim() }.filter { it.endsWith(".md") }
+                    .sortedWith(compareBy({ it != "index.md" }, { it }))
+            } else emptyList()
+        }
+    }
+    LaunchedEffect(Unit) { reload() }
+
+    Card {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) { T("经验笔记", QQ.text, 15, bold = true) }
+            Box(Modifier.tap { msg = ""; reload() }.padding(8.dp)) { T("刷新", QQ.blue, 13) }
+        }
+        T("模型办成事后会自己记在这里，下次直接用。你可以查看、修改或删除。", QQ.gray, 12)
+        if (files.isEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            T("还没有笔记", QQ.gray, 13)
+        }
+        files.forEach { f ->
+            Box(
+                Modifier.fillMaxWidth().tap {
+                    delArm = false; msg = ""
+                    if (openName == f) openName = "" else scope.launch {
+                        val r = withContext(Dispatchers.IO) { RootShell.run("cat " + shq("$dir/$f")) }
+                        text = r.out
+                        readOnly = r.out.endsWith("[输出已截断]")
+                        openName = f
+                    }
+                }.padding(vertical = 8.dp)
+            ) { T((if (openName == f) "▾ " else "▸ ") + f, QQ.text, 14) }
+        }
+        if (openName.isNotEmpty()) {
+            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(QQ.codeBg).padding(12.dp)) {
+                BasicTextField(
+                    text, { if (!readOnly) text = it }, Modifier.fillMaxWidth().heightIn(min = 120.dp),
+                    textStyle = TextStyle(color = QQ.text, fontSize = 13.sp),
+                    readOnly = readOnly,
+                    cursorBrush = SolidColor(QQ.blue)
+                )
+            }
+            if (readOnly) {
+                Spacer(Modifier.height(4.dp))
+                T("文件较长，这里只能查看和删除，不能直接修改", QQ.gray, 12)
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (!readOnly) Box(
+                    Modifier.clip(RoundedCornerShape(20.dp)).background(QQ.blue).tap {
+                        val name = openName
+                        val b64 = Base64.encodeToString(text.toByteArray(), Base64.NO_WRAP)
+                        scope.launch {
+                            val r = withContext(Dispatchers.IO) { RootShell.run("echo $b64 | base64 -d > " + shq("$dir/$name")) }
+                            msg = if (r.code == 0) "已保存" else "保存失败：" + r.out
+                        }
+                    }.padding(horizontal = 18.dp, vertical = 7.dp)
+                ) { T("保存", Color.White, 14, bold = true) }
+                Box(
+                    Modifier.clip(RoundedCornerShape(20.dp)).background(if (delArm) QQ.red else Color(0xFFC9CEDA)).tap {
+                        if (!delArm) { delArm = true; return@tap }
+                        val name = openName
+                        scope.launch {
+                            val idx = shq("$dir/index.md")
+                            val cmd = "rm -f " + shq("$dir/$name") + "; if [ -f $idx ]; then grep -vF " + shq("→ $name") +
+                                " $idx > $idx.tmp; mv $idx.tmp $idx; fi"
+                            val r = withContext(Dispatchers.IO) { RootShell.run(cmd) }
+                            msg = if (r.code == 0) "已删除 $name" else "删除失败：" + r.out
+                            delArm = false; openName = ""
+                            reload()
+                        }
+                    }.padding(horizontal = 18.dp, vertical = 7.dp)
+                ) { T(if (delArm) "再点一次确认删除" else "删除", Color.White, 14, bold = true) }
+            }
+        }
+        if (msg.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            T(msg, QQ.gray, 12)
+        }
     }
 }
