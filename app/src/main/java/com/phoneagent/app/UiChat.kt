@@ -1,5 +1,7 @@
 package com.phoneagent.app
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -11,6 +13,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -82,6 +86,10 @@ fun ChatScreen(vm: ChatViewModel, onMenu: () -> Unit) {
     val busy by vm.busy.collectAsState()
     val provider by vm.provider.collectAsState()
     val title by vm.title.collectAsState()
+    val pending by vm.pending.collectAsState()
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) vm.attach(uris)
+    }
     var picker by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -116,8 +124,11 @@ fun ChatScreen(vm: ChatViewModel, onMenu: () -> Unit) {
         ) {
             ModelPicker(provider, vm) { picker = false }
         }
+        if (pending.isNotEmpty()) PendingFiles(pending) { vm.removePending(it) }
         InputBar(
             input, { input = it }, busy, Prov.names[provider] ?: "", { picker = !picker },
+            hasFiles = pending.isNotEmpty(),
+            onAttach = { filePicker.launch(arrayOf("*/*")) },
             onSend = { val t = input; input = ""; vm.send(t) }, onStop = { vm.stop() }
         )
     }
@@ -178,9 +189,32 @@ private fun ModelPicker(current: String, vm: ChatViewModel, close: () -> Unit) {
 }
 
 @Composable
+private fun PendingFiles(files: List<Part.File>, onRemove: (Part.File) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().background(QQ.bar).horizontalScroll(rememberScrollState())
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        files.forEach { f ->
+            Row(
+                Modifier.padding(end = 6.dp).clip(RoundedCornerShape(16.dp)).background(Color.White)
+                    .padding(start = 12.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                T("📎 " + f.name.take(24), QQ.text, 13, maxLines = 1)
+                Box(
+                    Modifier.size(32.dp).clip(CircleShape).tap { onRemove(f) },
+                    contentAlignment = Alignment.Center
+                ) { T("✕", QQ.gray, 13) }
+            }
+        }
+    }
+}
+
+@Composable
 private fun InputBar(
     input: String, onInput: (String) -> Unit, busy: Boolean, providerName: String,
-    onPicker: () -> Unit, onSend: () -> Unit, onStop: () -> Unit
+    onPicker: () -> Unit, hasFiles: Boolean, onAttach: () -> Unit, onSend: () -> Unit, onStop: () -> Unit
 ) {
     Row(
         Modifier.fillMaxWidth().background(QQ.bar)
@@ -195,6 +229,11 @@ private fun InputBar(
         ) { T("$providerName ▾", QQ.gray, 13) }
         Spacer(Modifier.width(8.dp))
         Box(
+            Modifier.size(40.dp).clip(CircleShape).background(Color.White).tap(onAttach),
+            contentAlignment = Alignment.Center
+        ) { T("＋", QQ.gray, 22) }
+        Spacer(Modifier.width(8.dp))
+        Box(
             Modifier.weight(1f).heightIn(min = 40.dp).clip(RoundedCornerShape(20.dp)).background(Color.White)
                 .padding(horizontal = 14.dp, vertical = 9.dp),
             contentAlignment = Alignment.CenterStart
@@ -207,7 +246,7 @@ private fun InputBar(
             )
         }
         Spacer(Modifier.width(8.dp))
-        val canSend = input.isNotBlank()
+        val canSend = input.isNotBlank() || hasFiles
         Box(
             Modifier.size(40.dp).clip(CircleShape)
                 .background(if (busy || canSend) QQ.blue else Color(0xFFC9CEDA))
