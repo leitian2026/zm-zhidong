@@ -138,8 +138,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         if (key.isBlank()) throw IllegalStateException("请先在「设置」里填写 ${Prov.names[p]} 的 API Key")
     }
 
+    private companion object {
+        const val MAX_ROUNDS = 40
+    }
+
     private suspend fun runAgent(aiId: String) {
-        for (round in 0 until 15) {
+        for (round in 0 until MAX_ROUNDS) {
             val provider = makeProvider()
             val fullText = StringBuilder()
             val calls = mutableListOf<Part.Call>()
@@ -207,7 +211,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             for (c in calls) results += runTool(aiId, c)
             history += Msg(Role.TOOL, results)
         }
-        addBlock(aiId, Block.Text(newId(), "（已达到单次回复的最大工具调用轮数，已停止）"))
+        addBlock(aiId, Block.Text(newId(), "（已连续执行 $MAX_ROUNDS 轮操作后暂停，发「继续」可接着做）"))
     }
 
     private suspend fun runTool(aiId: String, c: Part.Call): Part.Result {
