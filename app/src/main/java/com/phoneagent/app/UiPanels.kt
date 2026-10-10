@@ -160,8 +160,8 @@ private fun SettingsPanel(vm: ChatViewModel, visible: Boolean, close: () -> Unit
                 Card {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            T("自动放行安全命令", QQ.text, 15, bold = true)
-                            T("关闭后为严格模式：所有操作都要你确认", QQ.gray, 12)
+                            T("自动放行非删除命令", QQ.text, 15, bold = true)
+                            T("删除类命令始终要确认；关闭后为严格模式，所有操作都要你确认", QQ.gray, 12)
                         }
                         Toggle(auto) { auto = it; st.autoSafe = it }
                     }
