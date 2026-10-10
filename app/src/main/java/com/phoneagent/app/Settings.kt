@@ -33,6 +33,23 @@ class Settings(ctx: Context) {
         p.getString("model_$pv", "")?.takeIf { it.isNotBlank() } ?: Prov.defModel[pv]!!
     fun setModel(pv: String, v: String) { p.edit().putString("model_$pv", v.trim()).apply() }
 
+    /** 每分钟 / 每天请求上限，0 = 不限制。Gemini 免费层默认 15 / 500，数值请按 AI Studio「速率限制」页面里自己模型那一行修改 */
+    fun rpm(pv: String): Int = p.getInt("rpm_$pv", if (pv == "gemini") 15 else 0)
+    fun setRpm(pv: String, v: String) { p.edit().putInt("rpm_$pv", v.trim().toIntOrNull()?.coerceAtLeast(0) ?: 0).apply() }
+    fun rpd(pv: String): Int = p.getInt("rpd_$pv", if (pv == "gemini") 500 else 0)
+    fun setRpd(pv: String, v: String) { p.edit().putInt("rpd_$pv", v.trim().toIntOrNull()?.coerceAtLeast(0) ?: 0).apply() }
+
+    private fun ptDay() = java.time.LocalDate.now(java.time.ZoneId.of("America/Los_Angeles")).toString()
+
+    /** 今天（按太平洋时间）本应用已发的请求数，只统计本应用，同一项目里别处的用量看不到 */
+    fun bumpDay(key: String): Int {
+        val s = p.getString("day_$key", "") ?: ""
+        val parts = s.split(":")
+        val n = (if (parts.getOrNull(0) == ptDay()) parts.getOrNull(1)?.toIntOrNull() ?: 0 else 0) + 1
+        p.edit().putString("day_$key", "${ptDay()}:$n").apply()
+        return n
+    }
+
     fun baseUrl(): String =
         p.getString("base_openai", "")?.takeIf { it.isNotBlank() } ?: Prov.DEF_BASE
     fun setBaseUrl(v: String) { p.edit().putString("base_openai", v.trim()).apply() }
