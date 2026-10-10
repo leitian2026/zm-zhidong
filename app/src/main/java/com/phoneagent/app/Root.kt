@@ -6,9 +6,17 @@ import java.util.concurrent.TimeUnit
 object RootShell {
     data class Res(val code: Int, val out: String)
 
+    @Volatile private var cur: Process? = null
+
+    /** 用户点“终止”时，立刻结束正在执行的命令（不用等它跑完或超时） */
+    fun cancelCurrent() {
+        cur?.destroyForcibly()
+    }
+
     fun run(cmd: String, timeoutMs: Long = 30_000): Res {
         try {
             val p = ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start()
+            cur = p
             val sb = StringBuffer()
             val reader = Thread {
                 try {
@@ -34,6 +42,8 @@ object RootShell {
             return Res(p.exitValue(), trimOut(sb))
         } catch (e: Exception) {
             return Res(-1, "无法执行 su：${e.message}")
+        } finally {
+            cur = null
         }
     }
 
