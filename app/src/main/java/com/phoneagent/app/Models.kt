@@ -31,7 +31,7 @@ interface Provider {
 class HttpError(message: String, val code: Int = 0, val body: String = "", val retryAfter: Int = 0) : java.io.IOException(message)
 
 /** ---------- UI 状态 ---------- */
-enum class Status { RUNNING, WAITING, DONE, FAILED, DENIED }
+enum class Status { RUNNING, WAITING, DONE, FAILED, DENIED, STOPPED }
 
 data class Confirm(val command: String, val reason: String, val severe: Boolean)
 
