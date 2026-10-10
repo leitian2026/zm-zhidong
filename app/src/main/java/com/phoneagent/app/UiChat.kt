@@ -42,6 +42,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -80,6 +83,8 @@ private val timeFmt = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
 
 /* ============================== 页面 ============================== */
 
+private const val SCROLL_SLOP_FACTOR = 0.5f
+
 @Composable
 fun ChatScreen(vm: ChatViewModel, onMenu: () -> Unit) {
     val ui by vm.ui.collectAsState()
@@ -94,6 +99,13 @@ fun ChatScreen(vm: ChatViewModel, onMenu: () -> Unit) {
     var picker by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    // 划动起步距离：系统默认约 8dp，这段距离内内容不会动，大屏上手感“不跟手”。聊天列表缩小到一半（改 SCROLL_SLOP_FACTOR 可调）
+    val baseVc = LocalViewConfiguration.current
+    val scrollVc = remember(baseVc) {
+        object : ViewConfiguration by baseVc {
+            override val touchSlop: Float get() = baseVc.touchSlop * SCROLL_SLOP_FACTOR
+        }
+    }
     val rev = remember(ui) { ui.asReversed() }
 
     // 新增消息时回到底部（reverseLayout：index 0 就是最新一条，贴着输入栏向上生长）
@@ -102,6 +114,7 @@ fun ChatScreen(vm: ChatViewModel, onMenu: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         TitleBar(title, Prov.names[provider] + " · " + vm.settings.model(provider), onMenu) { vm.newChat() }
         Box(Modifier.weight(1f).fillMaxWidth()) {
+            CompositionLocalProvider(LocalViewConfiguration provides scrollVc) {
             LazyColumn(
                 Modifier.fillMaxSize(), state = listState, reverseLayout = true,
                 contentPadding = PaddingValues(vertical = 10.dp)
@@ -109,6 +122,7 @@ fun ChatScreen(vm: ChatViewModel, onMenu: () -> Unit) {
                 itemsIndexed(rev, key = { _, m -> m.id }) { idx, m ->
                     MessageItem(m, rev.getOrNull(idx + 1)?.time, provider, { vm.stop() }) { id, ok -> vm.answer(id, ok) }
                 }
+            }
             }
             val atBottom by remember {
                 derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 }
