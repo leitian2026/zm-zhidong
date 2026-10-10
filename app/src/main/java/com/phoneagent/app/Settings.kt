@@ -7,7 +7,7 @@ object Prov {
     val names = mapOf("gemini" to "Gemini", "openai" to "GPT", "claude" to "Claude")
     val letters = mapOf("gemini" to "G", "openai" to "O", "claude" to "C")
     val defModel = mapOf(
-        "gemini" to "gemini-2.5-flash",
+        "gemini" to "gemini-3.8-flash",
         "openai" to "gpt-4o",
         "claude" to "claude-sonnet-5-5"
     )
