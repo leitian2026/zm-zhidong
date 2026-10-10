@@ -9,6 +9,8 @@ sealed class Part {
     data class Text(val text: String) : Part()
     data class Call(val id: String, val name: String, val args: String, val sig: String? = null) : Part()
     data class Result(val id: String, val name: String, val content: String) : Part()
+    /** 用户附件：文件已复制到应用私有目录，path 是绝对路径 */
+    data class File(val name: String, val mime: String, val path: String, val size: Long) : Part()
 }
 
 data class Msg(val role: Role, val parts: List<Part>, val time: Long = System.currentTimeMillis())
