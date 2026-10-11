@@ -1,6 +1,8 @@
 package com.phoneagent.app
 
 import android.util.Base64
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -39,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -49,6 +52,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -171,6 +175,10 @@ private fun SettingsPanel(vm: ChatViewModel, visible: Boolean, close: () -> Unit
                         Toggle(auto) { auto = it; st.autoSafe = it }
                     }
                 }
+                ProxyCard(st)
+                SecretsCard()
+                ExtCard()
+                BackupCard()
                 NotesCard(vm)
                 Card {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -316,6 +324,212 @@ private fun NotesCard(vm: ChatViewModel) {
                     }.padding(horizontal = 18.dp, vertical = 7.dp)
                 ) { T(if (delArm) "再点一次确认删除" else "删除", Color.White, 14, bold = true) }
             }
+        }
+        if (msg.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            T(msg, QQ.gray, 12)
+        }
+    }
+}
+
+
+/* ============================== 联网代理 ============================== */
+
+@Composable
+private fun ProxyCard(st: Settings) {
+    val scope = rememberCoroutineScope()
+    var result by remember { mutableStateOf("") }
+    Card {
+        T("联网代理（给 root 命令用）", QQ.text, 15, bold = true)
+        T("root 进程通常不走 VPN。填 VPN 软件的本地代理端口，如 127.0.0.1:7890，只有 SOCKS 时填 socks5h://127.0.0.1:10808；留空 = 不使用", QQ.gray, 12)
+        Field("代理地址", st.proxy) { st.proxy = it }
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.clip(RoundedCornerShape(20.dp)).background(QQ.blue).tap {
+                    result = "检测中…"
+                    scope.launch {
+                        val r = withContext(Dispatchers.IO) {
+                            RootShell.run("curl -m 10 -sS https://api.cloudflare.com/cdn-cgi/trace 2>&1 | head -c 300", 20_000)
+                        }
+                        result = r.out.ifBlank { "无输出" }
+                    }
+                }.padding(horizontal = 18.dp, vertical = 8.dp)
+            ) { T("测试连接 Cloudflare", Color.White, 14, bold = true) }
+            Spacer(Modifier.width(12.dp))
+            Box(Modifier.weight(1f)) { T(result, QQ.gray, 12, mono = true) }
+        }
+    }
+}
+
+/* ============================== 密钥 ============================== */
+
+private val SECRET_NAME = Regex("^[A-Za-z0-9_.-]{1,40}$")
+
+@Composable
+private fun SecretsCard() {
+    val scope = rememberCoroutineScope()
+    val dir = RootShell.SECRETS_DIR
+    var names by remember { mutableStateOf<List<String>>(emptyList()) }
+    var nm by remember { mutableStateOf("") }
+    var value by remember { mutableStateOf("") }
+    var nonce by remember { mutableStateOf(0) }
+    var delArm by remember { mutableStateOf("") }
+    var msg by remember { mutableStateOf("") }
+
+    fun reload() {
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { RootShell.run("ls -1 " + shq(dir) + " 2>/dev/null") }
+            names = if (r.code == 0) r.out.lines().map { it.trim() }.filter { it.isNotEmpty() } else emptyList()
+        }
+    }
+    LaunchedEffect(Unit) { reload() }
+
+    Card {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) { T("密钥", QQ.text, 15, bold = true) }
+            Box(Modifier.tap { msg = ""; reload() }.padding(8.dp)) { T("刷新", QQ.blue, 13) }
+        }
+        T("存在手机的 $dir（仅 root 可读）。模型只知道名称，用时从文件读取；在这里填写，值不会出现在聊天里。", QQ.gray, 12)
+        key(nonce) {
+            Field("名称（如 cf_token）", "") { nm = it.trim() }
+            Field("值", "", secret = true) { value = it.trim() }
+        }
+        Spacer(Modifier.height(10.dp))
+        Box(
+            Modifier.clip(RoundedCornerShape(20.dp)).background(QQ.blue).tap {
+                if (!SECRET_NAME.matches(nm)) { msg = "名称只能用字母、数字、下划线、点、减号"; return@tap }
+                if (value.isEmpty()) { msg = "值不能为空"; return@tap }
+                val b64 = Base64.encodeToString(value.toByteArray(), Base64.NO_WRAP)
+                val path = shq("$dir/$nm")
+                scope.launch {
+                    val r = withContext(Dispatchers.IO) {
+                        RootShell.run("mkdir -p " + shq(dir) + " && chmod 700 " + shq(dir) +
+                            " && echo " + b64 + " | base64 -d > " + path + " && chmod 600 " + path)
+                    }
+                    if (r.code == 0) {
+                        msg = "已保存 $nm"
+                        nm = ""; value = ""; nonce++
+                        reload()
+                    } else msg = "保存失败：" + r.out
+                }
+            }.padding(horizontal = 18.dp, vertical = 8.dp)
+        ) { T("保存", Color.White, 14, bold = true) }
+        names.forEach { n ->
+            Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { T(n, QQ.text, 14, mono = true) }
+                Box(
+                    Modifier.clip(RoundedCornerShape(16.dp)).background(if (delArm == n) QQ.red else Color(0xFFC9CEDA)).tap {
+                        if (delArm != n) { delArm = n; return@tap }
+                        scope.launch {
+                            val r = withContext(Dispatchers.IO) { RootShell.run("rm -f " + shq("$dir/$n")) }
+                            msg = if (r.code == 0) "已删除 $n" else "删除失败：" + r.out
+                            delArm = ""
+                            reload()
+                        }
+                    }.padding(horizontal = 14.dp, vertical = 5.dp)
+                ) { T(if (delArm == n) "再点一次确认" else "删除", Color.White, 13) }
+            }
+        }
+        if (msg.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            T(msg, QQ.gray, 12)
+        }
+    }
+}
+
+
+/* ============================== 扩展环境 ============================== */
+
+@Composable
+private fun ExtCard() {
+    val scope = rememberCoroutineScope()
+    var msg by remember { mutableStateOf("") }
+    Card {
+        T("扩展环境", QQ.text, 15, bold = true)
+        T("模型自己装的工具、环境脚本 env.sh 和清单 README.md 都在 ${RootShell.EXT_DIR}，卸载重装 App 后仍保留。若环境脚本写坏导致命令异常，先点下面停用它（只是改名为 env.sh.bak）。", QQ.gray, 12)
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.clip(RoundedCornerShape(20.dp)).background(QQ.blue).tap {
+                    val f = shq(RootShell.EXT_DIR + "/env.sh")
+                    scope.launch {
+                        val r = withContext(Dispatchers.IO) {
+                            RootShell.run("if [ -f $f ]; then mv -f $f $f.bak && echo 已停用 env.sh; else echo 没有环境脚本; fi", withEnv = false)
+                        }
+                        msg = r.out.ifBlank { "完成" }
+                    }
+                }.padding(horizontal = 18.dp, vertical = 8.dp)
+            ) { T("停用环境脚本", Color.White, 14, bold = true) }
+            Spacer(Modifier.width(12.dp))
+            Box(Modifier.weight(1f)) { T(msg, QQ.gray, 12) }
+        }
+    }
+}
+
+
+/* ============================== 备份 / 还原 ============================== */
+
+@Composable
+private fun BackupCard() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var withSecrets by remember { mutableStateOf(false) }
+    var restoreArm by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf("") }
+
+    val saver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/gzip")) { uri ->
+        if (uri != null) {
+            busy = true; msg = "导出中…"
+            scope.launch {
+                msg = withContext(Dispatchers.IO) { Backup.export(ctx, uri, withSecrets) }
+                busy = false
+            }
+        }
+    }
+    val opener = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            busy = true; msg = "还原中…"
+            scope.launch {
+                msg = withContext(Dispatchers.IO) { Backup.restore(ctx, uri) }
+                busy = false
+            }
+        }
+    }
+
+    Card {
+        T("备份 / 还原", QQ.text, 15, bold = true)
+        T("把模型的记忆库和功能扩展库（工具、环境脚本、清单、笔记）打成一个文件，存到任何位置；也可以从任何位置选回来，还原到它原本使用的位置。", QQ.gray, 12)
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                T("导出时同时包含密钥", QQ.text, 14)
+                T("密钥在文件里是明文，默认不带", QQ.gray, 12)
+            }
+            Toggle(withSecrets) { withSecrets = it }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.clip(RoundedCornerShape(20.dp)).background(QQ.blue).tap {
+                    if (busy) return@tap
+                    restoreArm = false
+                    saver.launch("phoneagent-ext-" + SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date()) + ".tar.gz")
+                }.padding(horizontal = 18.dp, vertical = 8.dp)
+            ) { T("导出到…", Color.White, 14, bold = true) }
+            Box(
+                Modifier.clip(RoundedCornerShape(20.dp)).background(if (restoreArm) QQ.red else Color(0xFFC9CEDA)).tap {
+                    if (busy) return@tap
+                    if (!restoreArm) { restoreArm = true; return@tap }
+                    restoreArm = false
+                    opener.launch(arrayOf("*/*"))
+                }.padding(horizontal = 18.dp, vertical = 8.dp)
+            ) { T(if (restoreArm) "再点一次，选择备份文件" else "从文件还原…", Color.White, 14, bold = true) }
+        }
+        if (restoreArm) {
+            Spacer(Modifier.height(6.dp))
+            T("还原会覆盖同名文件。只还原你自己导出的备份。", QQ.gray, 12)
         }
         if (msg.isNotEmpty()) {
             Spacer(Modifier.height(6.dp))
