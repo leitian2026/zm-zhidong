@@ -23,7 +23,8 @@ object Tools {
             schema(
                 listOf("command", "reason"),
                 Triple("command", "string", "要执行的 shell 命令"),
-                Triple("reason", "string", "一句话说明在做什么，直接显示给用户，例如“开启 Wi-Fi”")
+                Triple("reason", "string", "一句话说明在做什么，直接显示给用户，例如“开启 Wi-Fi”"),
+                Triple("timeout", "integer", "可选，超时秒数，默认 30，最大 600。下载文件等耗时命令请设大一些")
             )
         )
     )
@@ -49,18 +50,34 @@ object Tools {
         """(^|[\s;&|(`'"])(rm|rmdir|unlink|shred)(\s|$)|-delete\b|\b(pm|cmd\s+package)\s+(uninstall|clear)\b"""
     )
 
+    /** 修改/删除远程服务数据的 HTTP 请求（如 Cloudflare API 的 DELETE/PUT/PATCH） */
+    private val remoteWrite = Regex("""(?i)(-X\s*|--request[\s=]+)(DELETE|PUT|PATCH)\b""")
+
+    /** 安装/运行外部程序或改动系统挂载 */
+    private val installCmd = Regex("""\bchroot\b|\bmount\b|chmod\s+\S*\+x|\|\s*(ba|z)?sh\b""")
+
     fun risk(name: String, a: JSONObject, autoSafe: Boolean): Verdict {
         val why = a.str("reason")
         if (!autoSafe) return Verdict(Risk.CONFIRM, "当前是严格模式，所有操作都需要确认")
         if (name == "run_shell" && deleteCmd.containsMatchIn(a.str("command"))) {
             return Verdict(Risk.CONFIRM, "这条命令会删除内容" + if (why.isNotBlank()) "：$why" else "")
         }
+        if (name == "run_shell") {
+            val cmd = a.str("command")
+            if (remoteWrite.containsMatchIn(cmd)) {
+                return Verdict(Risk.CONFIRM, "这条命令会向远程服务发起修改/删除请求" + if (why.isNotBlank()) "：$why" else "")
+            }
+            if (installCmd.containsMatchIn(cmd)) {
+                return Verdict(Risk.CONFIRM, "这条命令会运行外部程序或改动挂载（chmod +x / chroot / mount / 管道执行脚本）" + if (why.isNotBlank()) "：$why" else "")
+            }
+        }
         return Verdict(Risk.SAFE)
     }
 
     fun execute(name: String, a: JSONObject): ToolResult {
         if (name != "run_shell") return ToolResult(false, "错误: 未知工具 $name，只有 run_shell")
-        val r = RootShell.run(a.str("command"))
+        val secs = a.optInt("timeout", 30).coerceIn(5, 600)
+        val r = RootShell.run(a.str("command"), secs * 1000L)
         val body = if (r.out.isBlank()) "（无输出）" else r.out
         return if (r.code == 0) ToolResult(true, body) else ToolResult(false, "错误: $body\n[退出码 ${r.code}]")
     }
