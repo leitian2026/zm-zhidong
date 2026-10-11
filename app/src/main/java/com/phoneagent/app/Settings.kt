@@ -17,6 +17,13 @@ object Prov {
 class Settings(ctx: Context) {
     private val p = ctx.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
+    /** root 命令使用的联网代理，空 = 不使用 */
+    var proxy: String
+        get() = p.getString("proxy", "") ?: ""
+        set(v) { p.edit().putString("proxy", v.trim()).apply(); RootShell.proxy = v.trim() }
+
+    init { RootShell.proxy = proxy }
+
     var provider: String
         get() = p.getString("provider", "gemini") ?: "gemini"
         set(v) { p.edit().putString("provider", v).apply() }
